@@ -171,6 +171,7 @@ if __name__ == '__main__':
     batches_per_epoch = 1615 # about 10 full runs
 
     for epoch in range(num_epochs):
+        epoch_loss = 0
         print(f'Epoch {epoch+1} of {num_epochs}')
         for _ in tqdm(range(batches_per_epoch)):
             torch.cuda.empty_cache()
@@ -183,8 +184,11 @@ if __name__ == '__main__':
             loss = F.cross_entropy(logits, labels)
             loss.backward()
             optimizer.step()
+            torch.cuda.synchronise()
+            epoch_loss += loss.item()
 
         torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
+        print(f'Loss: {epoch_loss/batches_per_epoch}')
 
     test_run()
 
