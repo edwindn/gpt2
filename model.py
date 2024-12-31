@@ -144,23 +144,27 @@ class DataLoader:
         return inputs, labels
 
 if __name__ == '__main__':
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
     config = GPTConfig()
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     #dataloader = DataLoader(config.batch_size, config.seq_length)
-    gpt = GPT(config)
+    gpt = GPT(config).to(device)
     dataloader = DataLoader(128, 16)
     num_batches = 100
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.001)
 
     input = "I am a language model"
     input = tokenizer(input).input_ids
-    tokens = torch.tensor(input, dtype=torch.long).unsqueeze(0)
-    garbage = gpt.generate(tokens, seq_length=15)
-    garbage = tokenizer.decode(garbage.flatten().detach().tolist(), skip_special_tokens=True)
+    tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
+    garbage = gpt.generate(tokens, seq_length=15).detach().cpu()
+    garbage = tokenizer.decode(garbage.flatten().tolist(), skip_special_tokens=True)
     print(garbage)
 
     for _ in tqdm(range(num_batches)):
         inputs, labels = dataloader.next_batch()
+        inputs = inputs.to(device)
+        labels = labels.to(device)
         optimizer.zero_grad()
         logits = gpt(inputs)
         labels = F.one_hot(labels, num_classes=config.vocab_size).float()
@@ -168,11 +172,13 @@ if __name__ == '__main__':
         loss.backward()
         optimizer.step()
 
+    torch.save(gpt.state_dict(), 'gpt_weights.pth')
+
     input = "I am a language model"
     input = tokenizer(input).input_ids
-    tokens = torch.tensor(input, dtype=torch.long).unsqueeze(0)
-    shakespeare = gpt.generate(tokens, seq_length=15)
-    shakespeare = tokenizer.decode(shakespeare.flatten().detach().tolist(), skip_special_tokens=True)
+    tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
+    shakespeare = gpt.generate(tokens, seq_length=15).detach().cpu()
+    shakespeare = tokenizer.decode(shakespeare.flatten().tolist(), skip_special_tokens=True)
     print(shakespeare)
 
 
