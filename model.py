@@ -146,6 +146,7 @@ class DataLoader:
         return inputs, labels
 
 if __name__ == '__main__':
+    torch.cuda.empty_cache()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     config = GPTConfig()
@@ -164,6 +165,7 @@ if __name__ == '__main__':
     print(garbage)
 
     for _ in tqdm(range(num_batches)):
+        torch.cuda.empty_cache()
         inputs, labels = dataloader.next_batch()
         inputs = inputs.to(device)
         labels = labels.to(device)
