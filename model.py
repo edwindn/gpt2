@@ -152,7 +152,7 @@ if __name__ == '__main__':
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config, device).to(device)
-    dataloader = DataLoader(512, 32)
+    dataloader = DataLoader(256, 32)
     num_batches = 10000
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.001)
 
