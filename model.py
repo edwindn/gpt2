@@ -45,7 +45,7 @@ class MultiHeadAttention(nn.Module):
 
         self.qkv_proj = nn.Linear(config.embedding_dim, 3*config.embedding_dim)
         sl = config.seq_length
-        self.register_buffer('mask', torch.tril(torch.ones(sl, sl)).view(1, 1, sl, sl))
+        #self.register_buffer('mask', torch.tril(torch.ones(sl, sl)).view(1, 1, sl, sl))
 
         self.num_heads = config.num_heads
         self.embedding_dim = config.embedding_dim
@@ -61,10 +61,12 @@ class MultiHeadAttention(nn.Module):
         k = k.view(b, t, self.num_heads, c // self.num_heads).permute(0, 2, 1, 3)
         v = v.view(b, t, self.num_heads, c // self.num_heads).permute(0, 2, 1, 3)
 
-        attn = q @ k.transpose(2, 3) / math.sqrt(k.size(-1)) # batch, head dim, T, T
-        attn = attn.masked_fill(self.mask[:,:,:t,:t]==0, float('-inf')) # trim mask to current sequence length
-        attn = F.softmax(attn, dim=-1)
-        out = attn @ v
+        #attn = q @ k.transpose(2, 3) / math.sqrt(k.size(-1)) # batch, head dim, T, T
+        #attn = attn.masked_fill(self.mask[:,:,:t,:t]==0, float('-inf')) # trim mask to current sequence length
+        #attn = F.softmax(attn, dim=-1)
+        #out = attn @ v
+        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        
         out = out.permute(0, 2, 1, 3).reshape(b, t, c)
         return self.out_proj(out)
 
@@ -163,6 +165,7 @@ if __name__ == '__main__':
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config, device).to(device)
+    gpt = torch.compile(gpt)
     dataloader = DataLoader(64, 32)
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005)
 
