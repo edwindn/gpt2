@@ -82,16 +82,18 @@ class TransformerBlock(nn.Module):
         return x
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, device):
         super().__init__()
 
         self.config = config
 
-        self.token_emb = nn.Embedding(config.vocab_size, config.embedding_dim)
-        self.pos_emb = sinusoidal_encoding(config.seq_length, config.embedding_dim).T
-        self.blocks = nn.ModuleList(TransformerBlock(config) for _ in range(config.num_blocks))
-        self.ln = nn.LayerNorm(config.embedding_dim)
-        self.lm_head = nn.Linear(config.embedding_dim, config.vocab_size, bias=False) # predict next token from embeddings, no decoder
+        self.token_emb = nn.Embedding(config.vocab_size, config.embedding_dim).to(device)
+        self.pos_emb = sinusoidal_encoding(config.seq_length, config.embedding_dim, device=device).T
+        self.blocks = nn.ModuleList(TransformerBlock(config) for _ in range(config.num_blocks)).to(device)
+        self.ln = nn.LayerNorm(config.embedding_dim).to(device)
+        self.lm_head = nn.Linear(config.embedding_dim, config.vocab_size, bias=False).to(device)
+        
+        self.token_emb.weight = self.lm_head.weight # input and output embeddings use the same transformation
 
     def forward(self, tokens):
         b, t = tokens.size()
@@ -118,7 +120,7 @@ class GPT(nn.Module):
                   topk_probs, topk_idxs = torch.topk(probs, 20, dim=-1)
                   idx_ix = torch.multinomial(topk_idxs.to(torch.float32), 1) #
                   idx = topk_idxs.index_select(dim=-1, index=idx_ix.flatten()) #
-                  tokens = torch.cat((tokens, torch.tensor([idx]).to(tokens.dtype).view(1, 1)), dim=-1) # still b, t
+                  tokens = torch.cat((tokens, torch.tensor([idx], device=tokens.device).to(tokens.dtype).view(1, 1)), dim=-1) # still b, t
         
         return tokens
 
@@ -149,7 +151,7 @@ if __name__ == '__main__':
     config = GPTConfig()
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     #dataloader = DataLoader(config.batch_size, config.seq_length)
-    gpt = GPT(config).to(device)
+    gpt = GPT(config, device).to(device)
     dataloader = DataLoader(128, 16)
     num_batches = 100
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.001)
