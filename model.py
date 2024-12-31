@@ -139,11 +139,19 @@ class DataLoader:
         inputs = tokens[:-1].view(self.batch_size, self.t)
         labels = tokens[1:].view(self.batch_size, self.t)
 
-        self.current_batch += 1
+        self.current_batch += self.batch_size*self.t
         if self.current_batch + self.batch_size*self.t + 1 == 0:
             self.current_batch = 0
 
         return inputs, labels
+
+def test_run():
+    input = "I am a language model"
+    input = tokenizer(input).input_ids
+    tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
+    out = gpt.generate(tokens, seq_length=32).detach().cpu()
+    out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
+    print(out)
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
@@ -154,36 +162,30 @@ if __name__ == '__main__':
     #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config, device).to(device)
     dataloader = DataLoader(64, 32)
-    num_batches = 5000
-    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.001)
+    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005)
 
-    input = "I am a language model"
-    input = tokenizer(input).input_ids
-    tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
-    garbage = gpt.generate(tokens, seq_length=15).detach().cpu()
-    garbage = tokenizer.decode(garbage.flatten().tolist(), skip_special_tokens=True)
-    print(garbage)
+    test_run()
 
-    for _ in tqdm(range(num_batches)):
-        torch.cuda.empty_cache()
-        inputs, labels = dataloader.next_batch()
-        inputs = inputs.to(device)
-        labels = labels.to(device)
-        optimizer.zero_grad()
-        logits = gpt(inputs)
-        labels = F.one_hot(labels, num_classes=config.vocab_size).float()
-        loss = F.cross_entropy(logits, labels)
-        loss.backward()
-        optimizer.step()
+    num_epochs = 100
+    batches_per_epoch = 1615 # about 10 full runs
 
-    torch.save(gpt.state_dict(), 'gpt_weights.pth')
+    for epoch in range(num_epochs):
+        print(f'Epoch {epoch+1} of {num_epochs}')
+        for _ in tqdm(range(batches_per_epoch)):
+            torch.cuda.empty_cache()
+            inputs, labels = dataloader.next_batch()
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            logits = gpt(inputs)
+            labels = F.one_hot(labels, num_classes=config.vocab_size).float()
+            loss = F.cross_entropy(logits, labels)
+            loss.backward()
+            optimizer.step()
 
-    input = "I am a language model"
-    input = tokenizer(input).input_ids
-    tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
-    shakespeare = gpt.generate(tokens, seq_length=15).detach().cpu()
-    shakespeare = tokenizer.decode(shakespeare.flatten().tolist(), skip_special_tokens=True)
-    print(shakespeare)
+        torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
+
+    test_run()
 
 
 
