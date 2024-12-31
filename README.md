@@ -1,1 +1,1 @@
-# gpt2
+From-scratch implementation of GPT2.
