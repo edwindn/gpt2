@@ -140,7 +140,7 @@ class DataLoader:
         labels = tokens[1:].view(self.batch_size, self.t)
 
         self.current_batch += self.batch_size*self.t
-        if self.current_batch + self.batch_size*self.t + 1 == 0:
+        if self.current_batch + 1 > len(corpus):
             self.current_batch = 0
 
         return inputs, labels
