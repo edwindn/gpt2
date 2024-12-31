@@ -184,7 +184,7 @@ if __name__ == '__main__':
             loss = F.cross_entropy(logits, labels)
             loss.backward()
             optimizer.step()
-            torch.cuda.synchronise()
+            torch.cuda.synchronize()
             epoch_loss += loss.item()
 
         torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
