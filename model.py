@@ -130,6 +130,7 @@ class DataLoader:
         self.t = t
         corpus = open('input.txt', 'r').read().strip().replace('\n\n', '\n')
         corpus = tokenizer(corpus).input_ids
+        self.corpus = corpus
         self.tokens = torch.tensor(corpus, dtype=torch.long)
 
         self.current_batch = 0
@@ -140,7 +141,7 @@ class DataLoader:
         labels = tokens[1:].view(self.batch_size, self.t)
 
         self.current_batch += self.batch_size*self.t
-        if self.current_batch + 1 > len(corpus):
+        if self.current_batch + self.batch_size*self.t + 1 > len(self.corpus):
             self.current_batch = 0
 
         return inputs, labels
