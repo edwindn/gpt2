@@ -26,7 +26,7 @@ x_seq = []
 label_seq = []
 
 with torch.no_grad():
-    for i in tqdm(range(1024)):
+    for i in tqdm(reversed(range(1024))):
         x_seq.append(x[:, :i].cpu().numpy())
         label_seq.append(F.one_hot(labels[:, :i], num_classes=config.vocab_size).float().cpu().numpy())
 
