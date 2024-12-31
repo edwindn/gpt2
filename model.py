@@ -14,6 +14,7 @@ class GPTConfig:
     num_heads: int = 12
     embedding_dim: int = 768
     num_blocks: int = 12
+    batch_size: int = 128
 
 def sinusoidal_encoding(seq_len, dim, max_timescale=10000):
     PE = np.empty((dim, seq_len))
@@ -145,7 +146,7 @@ class DataLoader:
 if __name__ == '__main__':
     config = GPTConfig()
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    dataloader = DataLoader(config.batch_size, config.seq_length)
+    #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config)
     dataloader = DataLoader(128, 16)
     num_batches = 100
