@@ -3,6 +3,7 @@ from tqdm import tqdm
 from dataclasses import dataclass
 from transformers import GPT2Tokenizer
 from model import GPTConfig
+import torch.nn.functional as F
 print("Ensure hugging face authentication before running")
 
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
