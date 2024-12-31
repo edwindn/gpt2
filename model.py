@@ -88,7 +88,7 @@ class GPT(nn.Module):
         self.config = config
 
         self.token_emb = nn.Embedding(config.vocab_size, config.embedding_dim).to(device)
-        self.pos_emb = sinusoidal_encoding(config.seq_length, config.embedding_dim, device=device).T
+        self.pos_emb = sinusoidal_encoding(config.seq_length, config.embedding_dim).T.to(device)
         self.blocks = nn.ModuleList(TransformerBlock(config) for _ in range(config.num_blocks)).to(device)
         self.ln = nn.LayerNorm(config.embedding_dim).to(device)
         self.lm_head = nn.Linear(config.embedding_dim, config.vocab_size, bias=False).to(device)
