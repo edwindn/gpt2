@@ -143,9 +143,9 @@ class DataLoader:
         return inputs, labels
 
 if __name__ == '__main__':
+    config = GPTConfig()
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     dataloader = DataLoader(config.batch_size, config.seq_length)
-    config = GPTConfig()
     gpt = GPT(config)
     dataloader = DataLoader(128, 16)
     num_batches = 100
