@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import numpy as np
 import math
 from tqdm import tqdm
@@ -184,7 +184,7 @@ if __name__ == '__main__':
             labels = labels.to(device)
             optimizer.zero_grad()
 
-            with autocast(): 
+            with autocast('cuda'): 
                 logits = gpt(inputs)
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels)
