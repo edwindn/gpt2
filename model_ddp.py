@@ -230,7 +230,7 @@ def train(rank, world_size):
             dataloader.current_batch = 0
             
             while data_is_loading:
-    
+                print(f'Machine {rank} initialising batch')
                 batch_loss = 0
                 num_epoch_batches += 1
                 for step in range(grad_steps):
