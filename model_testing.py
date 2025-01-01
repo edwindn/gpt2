@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler
 import numpy as np
 import math
 from tqdm import tqdm
@@ -170,6 +171,8 @@ if __name__ == '__main__':
     num_epochs = 1
     batches_per_epoch = 10
 
+    scaler = GradScaler()
+
     for epoch in range(num_epochs):
         epoch_loss = 0
         print(f'Epoch {epoch+1} of {num_epochs}')
@@ -180,9 +183,12 @@ if __name__ == '__main__':
             inputs = inputs.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
-            logits = gpt(inputs)
-            labels = F.one_hot(labels, num_classes=config.vocab_size).float()
-            loss = F.cross_entropy(logits, labels)
+
+            with autocast(): 
+                logits = gpt(inputs)
+                labels = F.one_hot(labels, num_classes=config.vocab_size).float()
+                loss = F.cross_entropy(logits, labels)
+            
             loss.backward()
             optimizer.step()
             torch.cuda.synchronize()
