@@ -21,6 +21,7 @@ BATCH_SIZE = 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
 USE_DDP = True
 WORLD_SIZE = 8
+NUM_EPOCHS = 100 # ~3000 at current settings
 
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
@@ -219,7 +220,7 @@ def train(rank, world_size):
         optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
     
-        num_epochs = 100
+        num_epochs = NUM_EPOCHS
     
         for epoch in range(num_epochs):
             test_run(gpt, device)
