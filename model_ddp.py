@@ -11,16 +11,17 @@ from transformers import GPT2Tokenizer
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
-import torch.multiprocessing as mp
+import multiprocessing as mp
 
 # FIX LOOP BREAKING (incorrect loss division)
 
 MINI_BATCH_SIZE = 64 #16
 BATCH_SIZE = 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
-USE_DDP = True
 WORLD_SIZE = 8
-NUM_EPOCHS = 100 # ~375 at current settings
+
+TOTAL_ITERS = int(10e10//BATCH_SIZE) # to loop through entire dataset once
+print(f'Total iters: {TOTAL_ITERS}')
 
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
@@ -145,138 +146,122 @@ class GPT(nn.Module):
         return tokens
 
 class DataLoader:
-    def __init__(self, b, t):
+    def __init__(self, b, t, rank, num_processes):
         self.batch_size = b
         self.t = t
 
-        self.corpus = []
-        #shards = [f'datashards/shard_{i}.npy' for i in range(100)]
-        shards = [f'datashards/shard_{1}.npy']
-        for shard in shards:
-            self.corpus.extend(np.load(shard).tolist())
-        
-        print(f'Loaded corpus of length {len(self.corpus)}')
-        self.tokens = torch.tensor(self.corpus, dtype=torch.long)
+        self.rank = rank # process rank
+        self.num_processes = num_processes
+        self.num_shards = 100 # can do better than hardcode this
 
-        self.current_batch = 0
+        self.reset()
+
+    def load_tokens(self, shard_idx):
+        tokens = np.load(f'datashards/shard_{shard_idx}.npy')
+        tokens = torch.from_numpy(tokens, dtype=torch.long)
+
+    def reset(self):
+        self.current_shard = 0
+        self.tokens = self.load_tokens(0)
+        self.position = self.t * self.batch_size * self.rank # advance in groups of num ranks (8)
 
     def next_batch(self):
-        print(f'On batch index {self.current_batch}, ending run on index {self.current_batch + self.batch_size*self.t + 1} of {len(self.corpus)}')
-        tokens = self.tokens[self.current_batch:self.current_batch + self.batch_size*self.t + 1]
+        tokens = self.tokens[self.position:self.position + self.batch_size*self.t + 1]
         inputs = tokens[:-1].view(self.batch_size, self.t)
         labels = tokens[1:].view(self.batch_size, self.t)
 
-        self.current_batch += self.batch_size*self.t
-        if self.current_batch + self.batch_size*self.t + 1 > len(self.corpus):
-            return None, None
+        self.position += self.batch_size * self.t * self.num_processes
+        if self.position + self.batch_size*self.t*self.num_processes + 1 > len(self.tokens):
+            self.current_shard = (self.current_shard + 1) % self.num_shards
+            self.tokens = self.load_tokens(self.current_shard)
+            self.position = self.batch_size * self.t * self.rank
 
         return inputs, labels
 
 def test_run(gpt, device):
-    model = gpt.module # if gpt is a DDP
     input = "I am a language model"
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
-    out = model.generate(tokens, seq_length=32).detach().cpu()
+    out = gpt.generate(tokens, seq_length=32).detach().cpu()
     out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
     print(out)
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12356'
+    os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def cleanup():
     dist.destroy_process_group()
 
-def save_on_interrupt(gpt, rank):
-    if rank == 0:
-        checkpoint_path = f'weights/gpt_weights_interrupt.pth'
-        torch.save(gpt.state_dict(), checkpoint_path)
-        print(f"[Rank {rank}] Model weights saved to {checkpoint_path} due to KeyboardInterrupt.")
-        
+   
 def train(rank, world_size):
-    try:
-        setup(rank, world_size)
-        device = torch.device(f'cuda:{rank}')
-        torch.cuda.set_device(device)
-        print(f'Setting up device {device}')
-    
-        config = GPTConfig()
-        gpt = GPT(config, device).to(device)
-        gpt = torch.compile(gpt)
-        gpt = DDP(gpt, device_ids=[rank])
-    
-        dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
-    
-        batch_size = BATCH_SIZE # close to .5M as in GPT3
-        assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
-        grad_steps = int(batch_size // MINI_BATCH_SIZE)
-    
-        # optimizer decay
-        def get_lr(iter, warmup=10, max_steps=50, max_lr=1e-3, min_lr=1e-4):
-            if iter < warmup:
-                return max_lr * (iter+1) / warmup # linear schedule
-            elif iter > warmup:
-                return min_lr
-            ratio = (iter - warmup) / (max_steps - warmup)
-            c = math.cos(ratio * math.pi/2)
-            return min_lr + c * (max_lr - min_lr)
-    
-        optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
-    
-        num_epochs = NUM_EPOCHS
-    
-        for epoch in range(num_epochs):
+    setup(rank, world_size)
+    device = torch.device(f'cuda:{rank}')
+    torch.cuda.set_device(device)
+    print(f'Setting up device {device}')
+
+    config = GPTConfig()
+    gpt = GPT(config, device).to(device)
+    gpt = torch.compile(gpt)
+    gpt = DDP(gpt, device_ids=[rank])
+
+    dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
+
+    batch_size = BATCH_SIZE # 2**19 is close to .5M as in GPT3
+    assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
+    grad_steps = int(batch_size // MINI_BATCH_SIZE)
+
+    # optimizer decay
+    def get_lr(iter, warmup=10, max_steps=50, max_lr=1e-3, min_lr=1e-4):
+        if iter < warmup:
+            return max_lr * (iter+1) / warmup # linear schedule
+        elif iter > warmup:
+            return min_lr
+        ratio = (iter - warmup) / (max_steps - warmup)
+        c = math.cos(ratio * math.pi/2)
+        return min_lr + c * (max_lr - min_lr)
+
+    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
+
+    num_iters = TOTAL_ITERS
+    print_every = 100
+
+    for iter in tqdm(range(num_iters)):
+        if iter % print_every == 0:
+            print(f'Rank {rank}: Iter {iter+1} of {num_iters}')
             test_run(gpt, device)
             torch.cuda.empty_cache()
-            epoch_loss = 0
-            print(f'Rank {rank}: Epoch {epoch+1} of {num_epochs}')
-            data_is_loading = True
-            num_epoch_batches = 0
-            dataloader.current_batch = 0
-            
-            while data_is_loading:
-                batch_loss = 0
-                num_epoch_batches += 1
-                for step in tqdm(range(grad_steps)):
-                    inputs, labels = dataloader.next_batch()
-                    if inputs == None:
-                        data_is_loading = False
-                        break # works if len(dataloader.corpus) >> batch_size, eg. at least ~1B tokens
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-                    optimizer.zero_grad()
-    
-                    with autocast(device_type='cuda', dtype=torch.float16): #bfloat16
-                        logits = gpt(inputs)
-                        labels = F.one_hot(labels, num_classes=config.vocab_size).float()
-                        loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
-                    loss.backward()
-                    batch_loss += loss.item()
-    
-                # this will execute after the break
-                torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
-                optimizer.step()
-                torch.cuda.synchronize()
-                epoch_loss += batch_loss
-                print(f'Batch loss: {batch_loss}')
-    
-            scheduler.step()
-            if epoch % 10 == 0 and rank == 0:
-                torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
-            print(f'Rank {rank}: Loss: {(epoch_loss/num_epoch_batches):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
-            
-    except KeyboardInterrupt:
-        save_on_interrupt(gpt, rank)
 
-    finally:
-        cleanup()
-    
+        batch_loss = 0
+        
+        for _ in range(grad_steps):
+            inputs, labels = dataloader.next_batch()
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+
+            with autocast(device_type='cuda', dtype=torch.bfloat16): #float16 for older series
+                logits = gpt(inputs)
+                labels = F.one_hot(labels, num_classes=config.vocab_size).float()
+                loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
+            loss.backward()
+            batch_loss += loss.item()
+
+        torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
+        optimizer.step()
+        torch.cuda.synchronize()
+        scheduler.step()
+
+        if iter % print_every == 0:
+            print(f'Batch loss: {batch_loss}')
+
+            if rank == 0:
+                torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
+
+            print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
+
+
 if __name__ == '__main__':
-    if USE_DDP:
-        mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
-    else:
-        print("Use model.py to train without DDP")
-        quit()
+    mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
