@@ -171,10 +171,11 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
+    model = gpt.module # if gpt is a DDP
     input = "I am a language model"
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
-    out = gpt.generate(tokens, seq_length=32).detach().cpu()
+    out = model.generate(tokens, seq_length=32).detach().cpu()
     out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
     print(out)
 
