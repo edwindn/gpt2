@@ -233,7 +233,7 @@ def train(rank, world_size):
                 print(f'Machine {rank} initialising batch')
                 batch_loss = 0
                 num_epoch_batches += 1
-                for step in range(grad_steps):
+                for step in tqdm(range(grad_steps)):
                     inputs, labels = dataloader.next_batch()
                     if inputs == None:
                         data_is_loading = False
