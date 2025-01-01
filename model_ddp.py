@@ -21,7 +21,7 @@ BATCH_SIZE = 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
 USE_DDP = True
 WORLD_SIZE = 8
-NUM_EPOCHS = 100 # ~3000 at current settings
+NUM_EPOCHS = 100 # ~375 at current settings
 
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
@@ -232,7 +232,6 @@ def train(rank, world_size):
             dataloader.current_batch = 0
             
             while data_is_loading:
-                print(f'Machine {rank} initialising batch')
                 batch_loss = 0
                 num_epoch_batches += 1
                 for step in tqdm(range(grad_steps)):
