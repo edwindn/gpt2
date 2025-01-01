@@ -147,7 +147,12 @@ class DataLoader:
         self.batch_size = b
         self.t = t
 
-        self.corpus = None # long array of tokens
+        self.corpus = []
+        shards = [f'datashards/shard_{i}.npy' for i in range(100)]
+        for shard in shards:
+            self.corpus.extend(np.load(shard).tolist())
+        
+        print(f'Loaded corpus of length {len(self.corpus)}')
         self.tokens = torch.tensor(self.corpus, dtype=torch.long)
 
         self.current_batch = 0
@@ -218,6 +223,8 @@ def train(rank, world_size):
         print(f'Rank {rank}: Epoch {epoch+1} of {num_epochs}')
         data_is_loading = True
         num_epoch_batches = 0
+        dataloader.current_batch = 0
+        
         while data_is_loading:
 
             batch_loss = 0
