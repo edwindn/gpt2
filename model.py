@@ -167,7 +167,7 @@ if __name__ == '__main__':
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
     dataloader = DataLoader(64, 32)
-    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005)
+    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
 
     test_run()
 
@@ -191,6 +191,7 @@ if __name__ == '__main__':
                 loss = F.cross_entropy(logits, labels)
                 
             scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
             scaler.step(optimizer)
             scaler.update()
             torch.cuda.synchronize()
