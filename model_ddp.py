@@ -161,6 +161,7 @@ class DataLoader:
         self.current_batch = 0
 
     def next_batch(self):
+        print(f'On batch index {self.current_batch}, ending run on index {self.current_batch + self.batch_size*self.t + 1} of {len(self.corpus)}')
         tokens = self.tokens[self.current_batch:self.current_batch + self.batch_size*self.t + 1]
         inputs = tokens[:-1].view(self.batch_size, self.t)
         labels = tokens[1:].view(self.batch_size, self.t)
@@ -188,6 +189,12 @@ def setup(rank, world_size):
 def cleanup():
     dist.destroy_process_group()
 
+def save_on_interrupt(gpt, rank):
+    if rank == 0:
+        checkpoint_path = f'weights/gpt_weights_interrupt.pth'
+        torch.save(gpt.state_dict(), checkpoint_path)
+        print(f"[Rank {rank}] Model weights saved to {checkpoint_path} due to KeyboardInterrupt.")
+        
 def train(rank, world_size):
     try:
         setup(rank, world_size)
@@ -260,9 +267,12 @@ def train(rank, world_size):
             if epoch % 10 == 0 and rank == 0:
                 torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
             print(f'Rank {rank}: Loss: {(epoch_loss/num_epoch_batches):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
-    except Exception as e:
-        print(f"[Rank {rank}] Error during training: {e}")
-    cleanup()
+            
+    except KeyboardInterrupt:
+        save_on_interrupt(gpt, rank)
+
+    finally:
+        cleanup()
     
 if __name__ == '__main__':
     if USE_DDP:
