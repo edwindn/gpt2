@@ -17,6 +17,7 @@ import torch.multiprocessing as mp
 # FIX LOOP BREAKING (incorrect loss division)
 
 MINI_BATCH_SIZE = 4 #16
+BATCH_SIZE 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
 USE_DDP = True
 WORLD_SIZE = 8
@@ -201,7 +202,7 @@ def train(rank, world_size):
     
         dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
     
-        batch_size = 2**19 # close to .5M as in GPT3
+        batch_size = BATCH_SIZE # close to .5M as in GPT3
         assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
         grad_steps = int(batch_size // MINI_BATCH_SIZE)
     
