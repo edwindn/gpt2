@@ -11,7 +11,6 @@ from transformers import GPT2Tokenizer
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
-#import multiprocessing as mp
 import torch.multiprocessing as mp
 
 # FIX LOOP BREAKING (incorrect loss division)
