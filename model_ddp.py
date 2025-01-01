@@ -149,7 +149,8 @@ class DataLoader:
         self.t = t
 
         self.corpus = []
-        shards = [f'datashards/shard_{i}.npy' for i in range(100)]
+        #shards = [f'datashards/shard_{i}.npy' for i in range(100)]
+        shards = [f'datashards/shard_{1}.npy']
         for shard in shards:
             self.corpus.extend(np.load(shard).tolist())
         
