@@ -170,7 +170,7 @@ class DataLoader:
 
         return inputs, labels
 
-def test_run():
+def test_run(gpt, device):
     input = "I am a language model"
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
@@ -187,7 +187,6 @@ def cleanup():
     dist.destroy_process_group()
 
 def train(rank, world_size):
-    device = torch.device('cuda')
     try:
         setup(rank, world_size)
         device = torch.device(f'cuda:{rank}')
@@ -221,7 +220,7 @@ def train(rank, world_size):
         num_epochs = 100
     
         for epoch in range(num_epochs):
-            test_run()
+            test_run(gpt, device)
             torch.cuda.empty_cache()
             epoch_loss = 0
             print(f'Rank {rank}: Epoch {epoch+1} of {num_epochs}')
