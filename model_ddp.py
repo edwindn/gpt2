@@ -187,6 +187,7 @@ def cleanup():
     dist.destroy_process_group()
 
 def train(rank, world_size):
+    device = torch.device('cuda')
     try:
         setup(rank, world_size)
         device = torch.device(f'cuda:{rank}')
