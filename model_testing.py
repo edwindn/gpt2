@@ -163,7 +163,7 @@ if __name__ == '__main__':
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config, device).to(device)
-    gpt = torch.compile(gpt)
+    #gpt = torch.compile(gpt)
     dataloader = DataLoader(64, 32)
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005)
 
@@ -174,7 +174,7 @@ if __name__ == '__main__':
         epoch_loss = 0
         print(f'Epoch {epoch+1} of {num_epochs}')
         for _ in range(batches_per_epoch):
-            #torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             t0 = time.time()
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
@@ -185,7 +185,7 @@ if __name__ == '__main__':
             loss = F.cross_entropy(logits, labels)
             loss.backward()
             optimizer.step()
-            #torch.cuda.synchronize()
+            torch.cuda.synchronize()
             t1 = time.time()
             print(f'Time: {((t1-t0)*1000):.2f}ms, Loss: {loss.item():.4f}')
             epoch_loss += loss.item()
