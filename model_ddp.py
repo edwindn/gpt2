@@ -186,77 +186,79 @@ def cleanup():
     dist.destroy_process_group()
 
 def train(rank, world_size):
-    setup(rank, world_size)
-    device = torch.device(f'cuda:{rank}')
-    torch.cuda.set_device(device)
-    print(f'Setting up device {device}')
-
-    config = GPTConfig()
-    gpt = GPT(config, device).to(device)
-    gpt = torch.compile(gpt)
-    gpt = DDP(gpt, device_ids=[rank])
-
-    dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
-
-    batch_size = 2**19 # close to .5M as in GPT3
-    assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
-    grad_steps = int(batch_size // MINI_BATCH_SIZE)
-
-    # optimizer decay
-    def get_lr(iter, warmup=10, max_steps=50, max_lr=1e-3, min_lr=1e-4):
-        if iter < warmup:
-            return max_lr * (iter+1) / warmup # linear schedule
-        elif iter > warmup:
-            return min_lr
-        ratio = (iter - warmup) / (max_steps - warmup)
-        c = math.cos(ratio * math.pi/2)
-        return min_lr + c * (max_lr - min_lr)
-
-    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
-
-    num_epochs = 100
-
-    for epoch in range(num_epochs):
-        test_run()
-        torch.cuda.empty_cache()
-        epoch_loss = 0
-        print(f'Rank {rank}: Epoch {epoch+1} of {num_epochs}')
-        data_is_loading = True
-        num_epoch_batches = 0
-        dataloader.current_batch = 0
-        
-        while data_is_loading:
-
-            batch_loss = 0
-            num_epoch_batches += 1
-            for step in range(grad_steps):
-                inputs, labels = dataloader.next_batch()
-                if inputs == None:
-                    data_is_loading = False
-                    break # works if len(dataloader.corpus) >> batch_size, eg. at least ~1B tokens
-                inputs = inputs.to(device)
-                labels = labels.to(device)
-                optimizer.zero_grad()
-
-                with autocast(device_type='cuda', dtype=torch.bfloat16):
-                    logits = gpt(inputs)
-                    labels = F.one_hot(labels, num_classes=config.vocab_size).float()
-                    loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
-                loss.backward()
-                batch_loss += loss.item()
-
-            # this will execute after the break
-            torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
-            optimizer.step()
-            torch.cuda.synchronize()
-            epoch_loss += batch_loss
-
-        scheduler.step()
-        if epoch % 10 == 0 and rank == 0:
-            torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
-        print(f'Rank {rank}: Loss: {(epoch_loss/num_epoch_batches):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
+    try:
+        setup(rank, world_size)
+        device = torch.device(f'cuda:{rank}')
+        torch.cuda.set_device(device)
+        print(f'Setting up device {device}')
     
+        config = GPTConfig()
+        gpt = GPT(config, device).to(device)
+        gpt = torch.compile(gpt)
+        gpt = DDP(gpt, device_ids=[rank])
+    
+        dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
+    
+        batch_size = 2**19 # close to .5M as in GPT3
+        assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
+        grad_steps = int(batch_size // MINI_BATCH_SIZE)
+    
+        # optimizer decay
+        def get_lr(iter, warmup=10, max_steps=50, max_lr=1e-3, min_lr=1e-4):
+            if iter < warmup:
+                return max_lr * (iter+1) / warmup # linear schedule
+            elif iter > warmup:
+                return min_lr
+            ratio = (iter - warmup) / (max_steps - warmup)
+            c = math.cos(ratio * math.pi/2)
+            return min_lr + c * (max_lr - min_lr)
+    
+        optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
+    
+        num_epochs = 100
+    
+        for epoch in range(num_epochs):
+            test_run()
+            torch.cuda.empty_cache()
+            epoch_loss = 0
+            print(f'Rank {rank}: Epoch {epoch+1} of {num_epochs}')
+            data_is_loading = True
+            num_epoch_batches = 0
+            dataloader.current_batch = 0
+            
+            while data_is_loading:
+    
+                batch_loss = 0
+                num_epoch_batches += 1
+                for step in range(grad_steps):
+                    inputs, labels = dataloader.next_batch()
+                    if inputs == None:
+                        data_is_loading = False
+                        break # works if len(dataloader.corpus) >> batch_size, eg. at least ~1B tokens
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+                    optimizer.zero_grad()
+    
+                    with autocast(device_type='cuda', dtype=torch.bfloat16):
+                        logits = gpt(inputs)
+                        labels = F.one_hot(labels, num_classes=config.vocab_size).float()
+                        loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
+                    loss.backward()
+                    batch_loss += loss.item()
+    
+                # this will execute after the break
+                torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
+                optimizer.step()
+                torch.cuda.synchronize()
+                epoch_loss += batch_loss
+    
+            scheduler.step()
+            if epoch % 10 == 0 and rank == 0:
+                torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
+            print(f'Rank {rank}: Loss: {(epoch_loss/num_epoch_batches):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
+    except Exception as e:
+        print(f"[Rank {rank}] Error during training: {e}")
     cleanup()
     
 if __name__ == '__main__':
