@@ -242,7 +242,7 @@ def train(rank, world_size):
                     labels = labels.to(device)
                     optimizer.zero_grad()
     
-                    with autocast(device_type='cuda', dtype=torch.bfloat16):
+                    with autocast(device_type='cuda', dtype=torch.float16): #bfloat16
                         logits = gpt(inputs)
                         labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                         loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
