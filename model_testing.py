@@ -189,8 +189,9 @@ if __name__ == '__main__':
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels)
             
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             torch.cuda.synchronize()
             t1 = time.time()
             print(f'Time: {((t1-t0)*1000):.2f}ms, Loss: {loss.item():.4f}')
