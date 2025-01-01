@@ -260,6 +260,7 @@ def train(rank, world_size):
     
 if __name__ == '__main__':
     if USE_DDP:
+        mp.set_start_method('spawn', force=True)  
         mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
     else:
         print("Use model.py to train without DDP")
