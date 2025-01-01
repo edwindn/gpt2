@@ -16,7 +16,7 @@ import torch.multiprocessing as mp
 
 # FIX LOOP BREAKING (incorrect loss division)
 
-MINI_BATCH_SIZE = 16
+MINI_BATCH_SIZE = 4
 TOKEN_LENGTH = 1024
 USE_DDP = True
 WORLD_SIZE = 8
