@@ -254,6 +254,7 @@ def train(rank, world_size):
                 optimizer.step()
                 torch.cuda.synchronize()
                 epoch_loss += batch_loss
+                print(f'Batch loss: {batch_loss}')
     
             scheduler.step()
             if epoch % 10 == 0 and rank == 0:
