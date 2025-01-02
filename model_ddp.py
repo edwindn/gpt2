@@ -11,9 +11,12 @@ from transformers import GPT2Tokenizer
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
-import multiprocessing as mp
+import torch.multiprocessing as mp
+import wandb
 
 # FIX LOOP BREAKING (incorrect loss division)
+
+run = wandb.init(project="gpt2")
 
 MINI_BATCH_SIZE = 64 #16
 BATCH_SIZE = 2**15 # 2**19
@@ -129,7 +132,6 @@ class GPT(nn.Module):
         return self.lm_head(x) # logits
 
     def generate(self, input_tokens, seq_length=None):
-        self.eval()
         tokens = input_tokens
 
         if seq_length is None:
@@ -142,7 +144,6 @@ class GPT(nn.Module):
                   idx_ix = torch.multinomial(topk_idxs.to(torch.float32), 1) #
                   idx = topk_idxs.index_select(dim=-1, index=idx_ix.flatten()) #
                   tokens = torch.cat((tokens, torch.tensor([idx], device=tokens.device).to(tokens.dtype).view(1, 1)), dim=-1) # still b, t
-        self.train() # assuming we continue training afterwards
         return tokens
 
 class DataLoader:
@@ -157,7 +158,7 @@ class DataLoader:
         self.reset()
 
     def load_tokens(self, shard_idx):
-        tokens = np.load(f'datashards/shard_{shard_idx}.npy')
+        tokens = np.load(f'../datashards/shard_{shard_idx}.npy')
         tokens = torch.from_numpy(tokens, dtype=torch.long)
 
     def reset(self):
@@ -179,11 +180,14 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
+    gpt = gpt.module()
+    gpt.eval()
     input = "I am a language model"
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
     out = gpt.generate(tokens, seq_length=32).detach().cpu()
     out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
+    gpt.train()
     print(out)
 
 def setup(rank, world_size):
@@ -227,6 +231,7 @@ def train(rank, world_size):
 
     num_iters = TOTAL_ITERS
     print_every = 100
+    save_every = 500
 
     for iter in tqdm(range(num_iters)):
         if iter % print_every == 0:
@@ -253,12 +258,14 @@ def train(rank, world_size):
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
+        wandb.log({"batch loss": batch_loss})
 
         if iter % print_every == 0:
             print(f'Batch loss: {batch_loss}')
 
-            if rank == 0:
-                torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
+        if iter % save_every and rank == 0:
+            torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
+            print(f'Saved GPT weights for iter {iter}')
 
             print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
 
