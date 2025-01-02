@@ -24,6 +24,8 @@ BATCH_SIZE = 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
 WORLD_SIZE = 8
 
+USE_WANDB = True
+
 TOTAL_ITERS = int(10e10//BATCH_SIZE) # to loop through entire dataset once
 print(f'Total iters: {TOTAL_ITERS}')
 
@@ -238,9 +240,9 @@ def train(rank, world_size):
     print_every = 100
     save_every = 500
 
-    if master_process:
+    if master_process and USE_WANDB:
         wandb.login(key=wandb_api_key)
-        #run = wandb.init(project="gpt2")
+        run = wandb.init(project="gpt2")
 
     for iter in tqdm(range(num_iters)):
         if iter % print_every == 0:
@@ -270,8 +272,8 @@ def train(rank, world_size):
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
-        #if master_process:
-        #    wandb.log({"batch loss": batch_loss.item()})
+        if master_process and USE_WANDB:
+            wandb.log({"batch loss": batch_loss.item()})
 
         if iter % print_every == 0:
             print(f'Rank {rank}: Loss: {(batch_loss.item()):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
