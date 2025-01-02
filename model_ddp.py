@@ -13,6 +13,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 import torch.multiprocessing as mp
 import wandb
+from dotenv import load_dotenv
 
 # FIX LOOP BREAKING (incorrect loss division)
 
@@ -26,6 +27,8 @@ WORLD_SIZE = 8
 TOTAL_ITERS = int(10e10//BATCH_SIZE) # to loop through entire dataset once
 print(f'Total iters: {TOTAL_ITERS}')
 
+load_dotenv()
+wandb_api_key = os.getenv("WANDB_API_KEY")
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 @dataclass
@@ -236,6 +239,7 @@ def train(rank, world_size):
     save_every = 500
 
     if master_process:
+        wandb.login(key=[wandb_api_key])
         run = wandb.init(project="gpt2")
 
     for iter in tqdm(range(num_iters)):
