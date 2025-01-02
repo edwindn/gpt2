@@ -248,11 +248,10 @@ def train(rank, world_size):
             torch.cuda.empty_cache()
 
         batch_loss = 0
-        
+
+        print('Fetching batch')
         for _ in range(grad_steps):
-            print('Fetching next batch')
             inputs, labels = dataloader.next_batch()
-            print('Fetched next batch')
             inputs = inputs.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
@@ -271,7 +270,8 @@ def train(rank, world_size):
                     dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
                     param.grad.data /= WORLD_SIZE
             # ---
-        
+            print('Completed batch')
+            
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
         optimizer.step()
         torch.cuda.synchronize()
