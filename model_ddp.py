@@ -16,9 +16,9 @@ import wandb
 
 # FIX LOOP BREAKING (incorrect loss division)
 
-run = wandb.init(project="gpt2")
+#run = wandb.init(project="gpt2")
 
-MINI_BATCH_SIZE = 64 #16
+MINI_BATCH_SIZE = 16 #16
 BATCH_SIZE = 2**15 # 2**19
 TOKEN_LENGTH = 128 #1024
 WORLD_SIZE = 8
@@ -160,6 +160,7 @@ class DataLoader:
     def load_tokens(self, shard_idx):
         tokens = np.load(f'../datashards/shard_{shard_idx}.npy')
         tokens = torch.from_numpy(tokens, dtype=torch.long)
+        print(f'Loaded tokens of length {tokens.size(0)}')
 
     def reset(self):
         self.current_shard = 0
@@ -258,7 +259,7 @@ def train(rank, world_size):
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
-        wandb.log({"batch loss": batch_loss})
+        #wandb.log({"batch loss": batch_loss})
 
         if iter % print_every == 0:
             print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
