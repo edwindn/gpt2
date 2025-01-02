@@ -210,9 +210,9 @@ def train(rank, world_size):
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
     gpt = DDP(gpt, device_ids=[rank])
-
+    print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
-
+    print('Set up dataloader')
     batch_size = BATCH_SIZE # 2**19 is close to .5M as in GPT3
     assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
     grad_steps = int(batch_size // MINI_BATCH_SIZE)
