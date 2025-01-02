@@ -282,7 +282,7 @@ def train(rank, world_size):
         if iter % print_every == 0:
             print(f'Rank {rank}: Loss: {(batch_loss.item()):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
 
-        if iter % save_every and rank == 0:
+        if iter % save_every == 0 and rank == 0:
             torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
             torch.save(optimizer.state_dict(), f'weights/optimizer_{iter}.pth')
             print(f'Saved checkpoint for iter {iter}')
