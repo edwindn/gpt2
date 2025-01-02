@@ -270,7 +270,7 @@ def train(rank, world_size):
                     dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
                     param.grad.data /= WORLD_SIZE
             # ---
-            print('Completed batch')
+        print('Completed batch')
             
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
         optimizer.step()
