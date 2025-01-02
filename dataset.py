@@ -3,6 +3,8 @@ from transformers import GPT2Tokenizer
 import numpy as np
 import multiprocessing as mp
 
+# !! mkdir ../datashards && mkdir weights
+
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
 ds = load_dataset("HuggingFaceFW/fineweb-edu", "sample-10BT")['train']
@@ -25,9 +27,11 @@ def save_shard(idx):
         tokens.extend(arr)
     tokens.append(eot)
     tokens = np.array(tokens).astype(np.uint16)
-    np.save(f'datashards/shard_{idx}.npy', tokens)
-    print(f'Saved shard at datashards/shard_{idx}.npy')
+    np.save(f'../datashards/shard_{idx}.npy', tokens)
+    print(f'Saved shard at ../datashards/shard_{idx}.npy')
 
 if __name__ == "__main__":
     with mp.Pool(processes=mp.cpu_count()) as pool:
         pool.map(save_shard, range(100))
+
+
