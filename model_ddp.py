@@ -261,13 +261,12 @@ def train(rank, world_size):
         wandb.log({"batch loss": batch_loss})
 
         if iter % print_every == 0:
-            print(f'Batch loss: {batch_loss}')
+            print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
 
         if iter % save_every and rank == 0:
             torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
-            print(f'Saved GPT weights for iter {iter}')
-
-            print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
+            torch.save(optimizer.state_dict(), f'weights/optimizer_{iter}.pth')
+            print(f'Saved checkpoint for iter {iter}')
 
 
 if __name__ == '__main__':
