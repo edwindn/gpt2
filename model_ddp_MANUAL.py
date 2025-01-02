@@ -250,7 +250,7 @@ def train(rank, world_size):
         batch_loss = 0
 
         print('Fetching batch')
-        for _ in range(grad_steps):
+        for _ in tqdm(range(grad_steps)):
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
             labels = labels.to(device)
