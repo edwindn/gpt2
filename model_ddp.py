@@ -182,7 +182,7 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
-    gpt = gpt.module()
+    #gpt = gpt.module()
     gpt.eval()
     input = "I am a language model"
     input = tokenizer(input).input_ids
@@ -213,7 +213,7 @@ def train(rank, world_size):
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
     print(f'Model compiled')
-    gpt = DDP(gpt, device_ids=[rank], find_unused_parameters=True)
+    #gpt = DDP(gpt, device_ids=[rank], find_unused_parameters=True)
     print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
     print('Set up dataloader')
@@ -260,6 +260,7 @@ def train(rank, world_size):
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
             loss.backward()
+            dist.all_reduce(loss, op=dist.ReduceOp.AVG)
             batch_loss += loss.item()
 
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
@@ -279,7 +280,7 @@ def train(rank, world_size):
 
 
 if __name__ == '__main__':
-    #rank = int(os.environ['LOCAL_RANK'])
-    #world_size = int(os.environ['WORLD_SIZE'])
-    #train(rank, world_size)
-    mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
+    rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+    train(rank, world_size)
+    #mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
