@@ -182,7 +182,7 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
-    gpt = gpt.module()
+    #gpt = gpt.module()
     gpt.eval()
     input = "I am a language model"
     input = tokenizer(input).input_ids
@@ -207,11 +207,13 @@ def train(rank, world_size):
     torch.cuda.set_device(device)
     print(f'Setting up device {device}')
 
+    master_process = rank == 0
+
     config = GPTConfig()
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
     print(f'Model compiled')
-    gpt = DDP(gpt, device_ids=[rank])
+    #gpt = DDP(gpt, device_ids=[rank])
     print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
     print('Set up dataloader')
@@ -235,6 +237,9 @@ def train(rank, world_size):
     num_iters = TOTAL_ITERS
     print_every = 100
     save_every = 500
+
+    if master_process:
+        run = wandb.init(project="gpt2")
 
     for iter in tqdm(range(num_iters)):
         if iter % print_every == 0:
@@ -261,7 +266,8 @@ def train(rank, world_size):
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
-        #wandb.log({"batch loss": batch_loss})
+        if master_process:
+            wandb.log({"batch loss": batch_loss})
 
         if iter % print_every == 0:
             print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
@@ -273,4 +279,7 @@ def train(rank, world_size):
 
 
 if __name__ == '__main__':
-    mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
+    rank = int(os.environ['LOCAL_RANK'])
+    world_size = int(os.environ['WORLD_SIZE'])
+    train(rank, world_size)
+    #mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
