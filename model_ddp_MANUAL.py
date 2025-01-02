@@ -250,7 +250,9 @@ def train(rank, world_size):
         batch_loss = 0
         
         for _ in range(grad_steps):
+            print('Fetching next batch')
             inputs, labels = dataloader.next_batch()
+            print('Fetched next batch')
             inputs = inputs.to(device)
             labels = labels.to(device)
             optimizer.zero_grad()
