@@ -182,14 +182,12 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
-    gpt = gpt.module()
-    gpt.eval()
+    gpt = gpt.module
     input = "I am a language model"
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
     out = gpt.generate(tokens, seq_length=32).detach().cpu()
     out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
-    gpt.train()
     print(out)
 
 def setup(rank, world_size):
@@ -212,7 +210,6 @@ def train(rank, world_size):
     config = GPTConfig()
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
-    print(f'Model compiled')
     gpt = DDP(gpt, device_ids=[rank])
     print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
@@ -231,7 +228,7 @@ def train(rank, world_size):
         c = math.cos(ratio * math.pi/2)
         return min_lr + c * (max_lr - min_lr)
 
-    optimizer = torch.optim.AdamW(gpt.module.parameters(), lr=0.0005, betas=(0.9, 0.95))
+    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
 
     num_iters = TOTAL_ITERS
@@ -243,11 +240,13 @@ def train(rank, world_size):
 
     for iter in tqdm(range(num_iters)):
         if iter % print_every == 0:
+            gpt.eval()
             print(f'Rank {rank}: Iter {iter+1} of {num_iters}')
             test_run(gpt, device)
+            gpt.train()
             torch.cuda.empty_cache()
 
-        batch_loss = 0
+        batch_loss = 0.0
         optimizer.zero_grad()
         for _ in range(grad_steps):
             inputs, labels = dataloader.next_batch()
@@ -259,17 +258,18 @@ def train(rank, world_size):
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
             loss.backward()
-            batch_loss += loss.item()
-        
+            batch_loss += loss.detach()
+
+        dist.all_reduce(batch_loss, op=dist.ReduceOp.AVG)
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
         if master_process:
-            wandb.log({"batch loss": batch_loss})
+            wandb.log({"batch loss": batch_loss.item()})
 
         if iter % print_every == 0:
-            print(f'Rank {rank}: Loss: {(batch_loss):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
+            print(f'Rank {rank}: Loss: {(batch_loss.item()):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
 
         if iter % save_every and rank == 0:
             torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
