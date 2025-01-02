@@ -239,7 +239,7 @@ def train(rank, world_size):
     save_every = 500
 
     if master_process:
-        wandb.login(key=[wandb_api_key])
+        wandb.login(key=wandb_api_key)
         run = wandb.init(project="gpt2")
 
     for iter in tqdm(range(num_iters)):
