@@ -207,8 +207,11 @@ def train(rank, world_size):
     print(f'Setting up device {device}')
 
     config = GPTConfig()
+    print('Setting up model')
     gpt = GPT(config, device).to(device)
+    print('Model created')
     gpt = torch.compile(gpt)
+    print(f'Model compiled')
     gpt = DDP(gpt, device_ids=[rank])
     print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
