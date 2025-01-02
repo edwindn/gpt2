@@ -256,7 +256,7 @@ def train(rank, world_size):
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
             labels = labels.to(device)
-            model.require_backward_grad_sync = (step == grad_steps - 1)
+            gpt.require_backward_grad_sync = (step == grad_steps - 1)
 
             with autocast(device_type=device.type, dtype=torch.bfloat16): #float16 for older series
                 logits = gpt(inputs)
