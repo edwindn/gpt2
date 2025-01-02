@@ -240,7 +240,7 @@ def train(rank, world_size):
 
     if master_process:
         wandb.login(key=wandb_api_key)
-        run = wandb.init(project="gpt2")
+        #run = wandb.init(project="gpt2")
 
     for iter in tqdm(range(num_iters)):
         if iter % print_every == 0:
@@ -252,10 +252,11 @@ def train(rank, world_size):
 
         batch_loss = 0.0
         optimizer.zero_grad()
-        for _ in range(grad_steps):
+        for step in tqdm(range(grad_steps)):
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
             labels = labels.to(device)
+            model.require_backward_grad_sync = (step == grad_steps - 1)
 
             with autocast(device_type=device.type, dtype=torch.bfloat16): #float16 for older series
                 logits = gpt(inputs)
@@ -269,8 +270,8 @@ def train(rank, world_size):
         optimizer.step()
         torch.cuda.synchronize()
         scheduler.step()
-        if master_process:
-            wandb.log({"batch loss": batch_loss.item()})
+        #if master_process:
+        #    wandb.log({"batch loss": batch_loss.item()})
 
         if iter % print_every == 0:
             print(f'Rank {rank}: Loss: {(batch_loss.item()):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
