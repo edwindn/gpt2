@@ -159,7 +159,7 @@ class DataLoader:
 
     def load_tokens(self, shard_idx):
         tokens = np.load(f'../datashards/shard_{shard_idx}.npy')
-        tokens = torch.from_numpy(tokens, dtype=torch.long)
+        tokens = torch.tensor(tokens, dtype=torch.long)
         print(f'Loaded tokens of length {tokens.size(0)}')
         return tokens
 
