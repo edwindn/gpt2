@@ -182,7 +182,7 @@ class DataLoader:
         return inputs, labels
 
 def test_run(gpt, device):
-    #gpt = gpt.module()
+    gpt = gpt.module()
     gpt.eval()
     input = "I am a language model"
     input = tokenizer(input).input_ids
@@ -213,7 +213,7 @@ def train(rank, world_size):
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
     print(f'Model compiled')
-    #gpt = DDP(gpt, device_ids=[rank])
+    gpt = DDP(gpt, device_ids=[rank])
     print('Setting up dataloader')
     dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
     print('Set up dataloader')
@@ -279,7 +279,7 @@ def train(rank, world_size):
 
 
 if __name__ == '__main__':
-    rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-    train(rank, world_size)
-    #mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
+    #rank = int(os.environ['LOCAL_RANK'])
+    #world_size = int(os.environ['WORLD_SIZE'])
+    #train(rank, world_size)
+    mp.spawn(train, args=(WORLD_SIZE,), nprocs=WORLD_SIZE, join=True)
