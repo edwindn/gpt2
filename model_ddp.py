@@ -267,7 +267,10 @@ def train(rank, world_size):
             loss.backward()
             batch_loss += loss.detach()
 
-        dist.all_reduce(batch_loss, op=dist.ReduceOp.AVG)
+        #dist.all_reduce(batch_loss, op=dist.ReduceOp.AVG)
+        dist.all_reduce(batch_loss, op=dist.ReduceOp.SUM) # should use nccl
+        batch_loss /= WORLD_SIZE
+        
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
         optimizer.step()
         torch.cuda.synchronize()
