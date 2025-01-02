@@ -31,6 +31,7 @@ print(f'Total iters: {TOTAL_ITERS}')
 
 load_dotenv()
 wandb_api_key = os.getenv("WANDB_API_KEY")
+os.makedirs('weights', exist_ok=True)
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 @dataclass
