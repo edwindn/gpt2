@@ -231,7 +231,7 @@ def train(rank, world_size):
         c = math.cos(ratio * math.pi/2)
         return min_lr + c * (max_lr - min_lr)
 
-    optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
+    optimizer = torch.optim.AdamW(gpt.module.parameters(), lr=0.0005, betas=(0.9, 0.95))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
 
     num_iters = TOTAL_ITERS
@@ -248,14 +248,13 @@ def train(rank, world_size):
             torch.cuda.empty_cache()
 
         batch_loss = 0
-        
+        optimizer.zero_grad()
         for _ in range(grad_steps):
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
             labels = labels.to(device)
-            optimizer.zero_grad()
 
-            with autocast(device_type='cuda', dtype=torch.bfloat16): #float16 for older series
+            with autocast(device_type=device, dtype=torch.bfloat16): #float16 for older series
                 logits = gpt(inputs)
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
