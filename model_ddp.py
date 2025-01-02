@@ -161,6 +161,7 @@ class DataLoader:
         tokens = np.load(f'../datashards/shard_{shard_idx}.npy')
         tokens = torch.from_numpy(tokens, dtype=torch.long)
         print(f'Loaded tokens of length {tokens.size(0)}')
+        return tokens
 
     def reset(self):
         self.current_shard = 0
@@ -208,11 +209,11 @@ def train(rank, world_size):
 
     config = GPTConfig()
     gpt = GPT(config, device).to(device)
-    gpt = torch.compile(gpt)
+    #gpt = torch.compile(gpt)
     print(f'Model compiled')
     gpt = DDP(gpt, device_ids=[rank])
     print('Setting up dataloader')
-    dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH)
+    dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
     print('Set up dataloader')
     batch_size = BATCH_SIZE # 2**19 is close to .5M as in GPT3
     assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
