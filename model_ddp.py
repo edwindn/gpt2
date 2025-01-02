@@ -260,9 +260,16 @@ def train(rank, world_size):
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
                 loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
             loss.backward()
-            dist.all_reduce(loss, op=dist.ReduceOp.AVG)
             batch_loss += loss.item()
 
+            # REMOVE IF USING DDP
+            for param in gpt.parameters():
+                dist.broadcast(param.data, src=0)
+                if param.grad is not None:
+                    dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
+                    param.grad.data /= WORLD_SIZE
+            # ---
+        
         torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
         optimizer.step()
         torch.cuda.synchronize()
