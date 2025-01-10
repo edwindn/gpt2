@@ -1,4 +1,4 @@
 From-scratch implementation of GPT2.
 
-*** To fix:
+***To fix:
 * distributed training
