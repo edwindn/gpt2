@@ -32,6 +32,7 @@ print(f'Total iters: {TOTAL_ITERS}')
 load_dotenv()
 wandb_api_key = os.getenv("WANDB_API_KEY")
 os.makedirs('weights', exist_ok=True)
+
 # ----------
 tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 @dataclass
@@ -189,7 +190,7 @@ class DataLoader:
 
 def test_run(gpt, device):
     gpt = gpt.module
-    input = "I am a language model"
+    input = "To be or not to be, "
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
     out = gpt.generate(tokens, seq_length=32).detach().cpu()

@@ -2,20 +2,43 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import numpy as np
 import math
+import os
 from tqdm import tqdm
 from transformers import GPT2Tokenizer
+import wandb
+from dotenv import load_dotenv
 
+# FIX LOOP BREAKING (incorrect loss division)
+
+#run = wandb.init(project="gpt2")
+
+MINI_BATCH_SIZE = 16 #16
+BATCH_SIZE = 2**15 # 2**19
+TOKEN_LENGTH = 128 #1024
+WORLD_SIZE = 8
+
+USE_WANDB = True
+
+TOTAL_ITERS = int(10e10//BATCH_SIZE) # to loop through entire dataset once
+print(f'Total iters: {TOTAL_ITERS}')
+
+load_dotenv()
+wandb_api_key = os.getenv("WANDB_API_KEY")
+os.makedirs('weights', exist_ok=True)
+
+# ----------
+tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 @dataclass
 class GPTConfig:
-    seq_length: int = 1024
+    seq_length: int = TOKEN_LENGTH
     vocab_size: int = 50257
     num_heads: int = 12
     embedding_dim: int = 768
     num_blocks: int = 12
-    batch_size: int = 128
+    batch_size: int = MINI_BATCH_SIZE
 
 def sinusoidal_encoding(seq_len, dim, max_timescale=10000):
     PE = np.empty((dim, seq_len))
@@ -118,90 +141,136 @@ class GPT(nn.Module):
             seq_length = self.config.seq_length
         while tokens.size(1) < seq_length:
             with torch.no_grad():
-                  logits = gpt(tokens)[:, -1, :] # get last time dimension
+                  logits = self(tokens)[:, -1, :] # get last time dimension
                   probs = F.softmax(logits, dim=-1)
                   topk_probs, topk_idxs = torch.topk(probs, 20, dim=-1)
                   idx_ix = torch.multinomial(topk_idxs.to(torch.float32), 1) #
                   idx = topk_idxs.index_select(dim=-1, index=idx_ix.flatten()) #
                   tokens = torch.cat((tokens, torch.tensor([idx], device=tokens.device).to(tokens.dtype).view(1, 1)), dim=-1) # still b, t
-        
         return tokens
 
 class DataLoader:
-    def __init__(self, b, t):
+    def __init__(self, b, t, rank, num_processes):
         self.batch_size = b
         self.t = t
-        corpus = open('input.txt', 'r').read().strip().replace('\n\n', '\n')
-        corpus = tokenizer(corpus).input_ids
-        self.corpus = corpus
-        self.tokens = torch.tensor(corpus, dtype=torch.long)
 
-        self.current_batch = 0
+        self.rank = rank # process rank
+        self.num_processes = num_processes
+        self.num_shards = 100 # can do better than hardcode this
+
+        self.reset()
+
+    def load_tokens(self, shard_idx):
+        tokens = np.load(f'../datashards/shard_{shard_idx}.npy')
+        tokens = torch.tensor(tokens, dtype=torch.long)
+        print(f'Loaded tokens of length {tokens.size(0)}')
+        return tokens
+
+    def reset(self):
+        self.current_shard = 0
+        self.tokens = self.load_tokens(0)
+        self.position = self.t * self.batch_size * self.rank # advance in groups of num ranks (8)
 
     def next_batch(self):
-        tokens = self.tokens[self.current_batch:self.current_batch + self.batch_size*self.t + 1]
+        tokens = self.tokens[self.position:self.position + self.batch_size*self.t + 1]
         inputs = tokens[:-1].view(self.batch_size, self.t)
         labels = tokens[1:].view(self.batch_size, self.t)
 
-        self.current_batch += self.batch_size*self.t
-        if self.current_batch + self.batch_size*self.t + 1 > len(self.corpus):
-            self.current_batch = 0
+        self.position += self.batch_size * self.t * self.num_processes
+        if self.position + self.batch_size*self.t*self.num_processes + 1 > len(self.tokens):
+            self.current_shard = (self.current_shard + 1) % self.num_shards
+            self.tokens = self.load_tokens(self.current_shard)
+            self.position = self.batch_size * self.t * self.rank
 
         return inputs, labels
 
-def test_run():
+def test_run(gpt, device):
+    gpt = gpt.module
     input = "To be or not to be, "
     input = tokenizer(input).input_ids
     tokens = torch.tensor(input, dtype=torch.long, device=device).unsqueeze(0)
     out = gpt.generate(tokens, seq_length=32).detach().cpu()
     out = tokenizer.decode(out.flatten().tolist(), skip_special_tokens=True)
     print(out)
+   
+def train(rank, world_size):
+    setup(rank, world_size)
+    device = torch.device(f'cuda:{rank}')
+    torch.cuda.set_device(device)
+    print(f'Setting up device {device}')
 
-if __name__ == '__main__':
-    torch.cuda.empty_cache()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(device)
+    master_process = rank == 0
+
     config = GPTConfig()
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    #dataloader = DataLoader(config.batch_size, config.seq_length)
     gpt = GPT(config, device).to(device)
     gpt = torch.compile(gpt)
-    dataloader = DataLoader(64, 32)
+    gpt = DDP(gpt, device_ids=[rank])
+    print('Setting up dataloader')
+    dataloader = DataLoader(MINI_BATCH_SIZE, TOKEN_LENGTH, rank, world_size)
+    print('Set up dataloader')
+    batch_size = BATCH_SIZE # 2**19 is close to .5M as in GPT3
+    assert batch_size % MINI_BATCH_SIZE == 0, 'batch size must be a divisor of 2**19'
+    grad_steps = int(batch_size // MINI_BATCH_SIZE)
+
+    # optimizer decay
+    def get_lr(iter, warmup=10, max_steps=50, max_lr=1e-3, min_lr=1e-4):
+        if iter < warmup:
+            return max_lr * (iter+1) / warmup # linear schedule
+        elif iter > warmup:
+            return min_lr
+        ratio = (iter - warmup) / (max_steps - warmup)
+        c = math.cos(ratio * math.pi/2)
+        return min_lr + c * (max_lr - min_lr)
+
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=0.0005, betas=(0.9, 0.95))
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda iter: get_lr(iter))
 
-    test_run()
+    num_iters = TOTAL_ITERS
+    print_every = 100
+    save_every = 500
 
-    num_epochs = 100
-    batches_per_epoch = 1615 # about 10 full runs
+    if master_process and USE_WANDB:
+        wandb.login(key=wandb_api_key)
+        run = wandb.init(project="gpt2")
 
-    scaler = GradScaler()
-    for epoch in range(num_epochs):
-        epoch_loss = 0
-        print(f'Epoch {epoch+1} of {num_epochs}')
-        for _ in tqdm(range(batches_per_epoch)):
+    for iter in tqdm(range(num_iters)):
+        if iter % print_every == 0:
+            gpt.eval()
+            print(f'Rank {rank}: Iter {iter+1} of {num_iters}')
+            test_run(gpt, device)
+            gpt.train()
             torch.cuda.empty_cache()
+
+        batch_loss = 0.0
+        optimizer.zero_grad()
+        for step in range(grad_steps):
             inputs, labels = dataloader.next_batch()
             inputs = inputs.to(device)
             labels = labels.to(device)
-            optimizer.zero_grad()
+            gpt.require_backward_grad_sync = (step == grad_steps - 1)
 
-            with autocast():
+            with autocast(device_type=device.type, dtype=torch.bfloat16): #float16 for older series
                 logits = gpt(inputs)
                 labels = F.one_hot(labels, num_classes=config.vocab_size).float()
-                loss = F.cross_entropy(logits, labels)
-                
-            scaler.scale(loss).backward()
-            torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
-            scaler.step(optimizer)
-            scaler.update()
-            torch.cuda.synchronize()
-            epoch_loss += loss.item()
+                loss = F.cross_entropy(logits, labels) / grad_steps # adjust loss scaling
+            loss.backward()
+            batch_loss += loss.detach()
 
-        torch.save(gpt.state_dict(), f'weights/gpt_weights_{epoch}.pth')
-        print(f'Loss: {epoch_loss/batches_per_epoch}')
+        #dist.all_reduce(batch_loss, op=dist.ReduceOp.AVG)
+        dist.all_reduce(batch_loss, op=dist.ReduceOp.SUM) # should use nccl
+        batch_loss /= WORLD_SIZE
+        
+        torch.nn.utils.clip_grad_norm_(gpt.parameters(), 1.0)
+        optimizer.step()
+        torch.cuda.synchronize()
+        scheduler.step()
+        if master_process and USE_WANDB:
+            wandb.log({"batch loss": batch_loss.item()})
 
-    test_run()
+        if iter % print_every == 0:
+            print(f'Rank {rank}: Loss: {(batch_loss.item()):.4f}, Learning rate {scheduler.get_last_lr()[0]:.4f}')
 
-
-
-    
+        if iter % save_every == 0 and rank == 0:
+            torch.save(gpt.state_dict(), f'weights/gpt_weights_{iter}.pth')
+            torch.save(optimizer.state_dict(), f'weights/optimizer_{iter}.pth')
+            print(f'Saved checkpoint for iter {iter}')
